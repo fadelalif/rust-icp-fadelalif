@@ -1,3 +1,27 @@
+type Error = variant {
+  AlreadyBooked : record { msg : text };
+  NotFound : record { msg : text };
+};
+type Result = variant { Ok : Ticket; Err : Error };
+type Ticket = record {
+  id : nat64;
+  updated_at : opt nat64;
+  booking_status : text;
+  created_at : nat64;
+  seat_number : text;
+  price : float64;
+  concert_name : text;
+};
+type TicketPayload = record {
+  seat_number : text;
+  price : float64;
+  concert_name : text;
+};
 service : {
-    "greet": (text) -> (text) query;
+  add_ticket : (TicketPayload) -> (opt Ticket);
+  book_ticket : (nat64) -> (Result);
+  delete_ticket : (nat64) -> (Result);
+  get_ticket : (nat64) -> (Result) query;
+  greet : (text) -> (text) query;
+  update_ticket : (nat64, TicketPayload) -> (Result);
 }
