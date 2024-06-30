@@ -2,6 +2,7 @@
 fn greet(name: String) -> String {
     format!("Hello, {}!", name)
 }
+
 #[macro_use]
 extern crate serde;
 use candid::{Decode, Encode};
@@ -24,7 +25,7 @@ struct Ticket {
     updated_at: Option<u64>,
 }
 
-// a trait that must be implemented for a struct that is stored in a stable struct
+// Implement the Storable trait for the Ticket struct
 impl Storable for Ticket {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
         Cow::Owned(Encode!(self).unwrap())
@@ -35,7 +36,7 @@ impl Storable for Ticket {
     }
 }
 
-// another trait that must be implemented for a struct that is stored in a stable struct
+// Implement the BoundedStorable trait for the Ticket struct
 impl BoundedStorable for Ticket {
     const MAX_SIZE: u32 = 1024;
     const IS_FIXED_SIZE: bool = false;
@@ -75,13 +76,21 @@ fn get_ticket(id: u64) -> Result<Ticket, Error> {
 }
 
 #[ic_cdk::update]
-fn add_ticket(ticket: TicketPayload) -> Option<Ticket> {
+fn add_ticket(ticket: TicketPayload) -> Result<Ticket, Error> {
+    // Validate payload
+    if ticket.concert_name.is_empty() || ticket.seat_number.is_empty() || ticket.price <= 0.0 {
+        return Err(Error::InvalidInput { msg: "All fields must be provided and valid".to_string() });
+    }
+
+    // Increment the ID counter
     let id = ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
             counter.borrow_mut().set(current_value + 1)
         })
         .expect("cannot increment id counter");
+
+    // Create a new Ticket struct
     let ticket = Ticket {
         id,
         concert_name: ticket.concert_name,
@@ -91,19 +100,30 @@ fn add_ticket(ticket: TicketPayload) -> Option<Ticket> {
         created_at: time(),
         updated_at: None,
     };
+
+    // Insert the new ticket into storage
     do_insert(&ticket);
-    Some(ticket)
+
+    Ok(ticket)
 }
 
 #[ic_cdk::update]
 fn update_ticket(id: u64, payload: TicketPayload) -> Result<Ticket, Error> {
+    // Validate payload
+    if payload.concert_name.is_empty() || payload.seat_number.is_empty() || payload.price <= 0.0 {
+        return Err(Error::InvalidInput { msg: "All fields must be provided and valid".to_string() });
+    }
+
     match STORAGE.with(|service| service.borrow().get(&id)) {
         Some(mut ticket) => {
             ticket.concert_name = payload.concert_name;
             ticket.seat_number = payload.seat_number;
             ticket.price = payload.price;
             ticket.updated_at = Some(time());
+
+            // Update the ticket in storage
             do_insert(&ticket);
+
             Ok(ticket)
         }
         None => Err(Error::NotFound {
@@ -115,7 +135,7 @@ fn update_ticket(id: u64, payload: TicketPayload) -> Result<Ticket, Error> {
     }
 }
 
-// helper method to perform insert.
+// Helper method to perform insert operation
 fn do_insert(ticket: &Ticket) {
     STORAGE.with(|service| service.borrow_mut().insert(ticket.id, ticket.clone()));
 }
@@ -161,12 +181,13 @@ fn book_ticket(id: u64) -> Result<Ticket, Error> {
 enum Error {
     NotFound { msg: String },
     AlreadyBooked { msg: String },
+    InvalidInput { msg: String }, // Added error variant for invalid input
 }
 
-// a helper method to get a ticket by id. used in get_ticket/update_ticket
+// Helper method to get a ticket by ID, used in get_ticket and update_ticket
 fn _get_ticket(id: &u64) -> Option<Ticket> {
     STORAGE.with(|service| service.borrow().get(id))
 }
 
-// need this to generate candid
+// Generate candid interface
 ic_cdk::export_candid!();
